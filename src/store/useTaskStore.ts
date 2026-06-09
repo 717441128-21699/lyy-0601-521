@@ -188,7 +188,11 @@ export const useTaskStore = create<TaskState>((set, get) => {
         tasks = tasks.filter(t => t.status === get().filterStatus);
       }
       if (get().filterAssignee !== 'all') {
-        tasks = tasks.filter(t => t.assigneeId === get().filterAssignee);
+        if (get().filterAssignee === '') {
+          tasks = tasks.filter(t => t.assigneeId === null || t.assigneeId === '');
+        } else {
+          tasks = tasks.filter(t => t.assigneeId === get().filterAssignee);
+        }
       }
       if (get().filterPriority !== 'all') {
         tasks = tasks.filter(t => t.priority === get().filterPriority);

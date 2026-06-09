@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText,
@@ -34,7 +34,7 @@ import { useTaskStore } from '../store/useTaskStore';
 import { useMessageStore } from '../store/useMessageStore';
 import { formatDateTime, formatRelativeTime } from '../utils/date';
 import { exportDocument } from '../utils/export';
-import { canEdit, canManage } from '../utils/permission';
+import { canView, canEdit, canManage } from '../utils/permission';
 import { Avatar } from '../components/ui/Avatar';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -104,16 +104,28 @@ export const Documents: React.FC = () => {
   const [showExportMenu, setShowExportMenu] = useState(false);
 
   const currentSpaceId = spaceId || activeSpaceId || 'space1';
-  const currentDocId = docId || activeDocumentId || 'doc1';
+  const requestedDocId = docId || activeDocumentId;
   const activeSpace = spaces.find(s => s.id === currentSpaceId);
-  const activeDoc = documents.find(d => d.id === currentDocId);
+  const activeDoc = requestedDocId ? documents.find(d => d.id === requestedDocId) : documents.find(d => d.spaceId === currentSpaceId && !d.folderId) || documents[0];
   const activeFolder = activeDoc?.folderId ? folders.find(f => f.id === activeDoc.folderId) : null;
-  const docVersions = getVersionsByDocument(currentDocId);
-  const docComments = getCommentsByTarget('document', currentDocId);
+  const docExists = !requestedDocId || !!activeDoc;
+  const currentDocId = activeDoc?.id || '';
+  const docVersions = currentDocId ? getVersionsByDocument(currentDocId) : [];
+  const docComments = currentDocId ? getCommentsByTarget('document', currentDocId) : [];
   const searchResults = searchKeyword ? searchDocuments(searchKeyword) : [];
 
+  const canViewDoc = currentUser ? (activeFolder ? canView(currentUser.id, activeFolder) : true) : false;
   const canEditDoc = currentUser ? (activeFolder ? canEdit(currentUser.id, activeFolder) : true) : false;
   const canManageDoc = currentUser ? (activeFolder ? canManage(currentUser.id, activeFolder) : true) : false;
+
+  useEffect(() => {
+    if (spaceId && spaceId !== activeSpaceId) {
+      setActiveSpace(spaceId);
+    }
+    if (docId && docId !== activeDocumentId && documents.find(d => d.id === docId)) {
+      setActiveDocument(docId);
+    }
+  }, [spaceId, docId, activeSpaceId, activeDocumentId, documents, setActiveSpace, setActiveDocument]);
 
   const toggleFolder = (folderId: string) => {
     setExpandedFolders(prev => {
@@ -220,9 +232,9 @@ export const Documents: React.FC = () => {
     setSelectedBlockId(null);
   };
 
-  const handleExport = (format: 'md' | 'pdf' | 'docx') => {
+  const handleExport = async (format: 'md' | 'pdf' | 'docx') => {
     if (activeDoc) {
-      exportDocument(activeDoc, format);
+      await exportDocument(activeDoc, format);
     }
   };
 
@@ -444,8 +456,13 @@ export const Documents: React.FC = () => {
   };
 
   const renderFolderTree = (spaceId: string, parentId: string | null, level: number = 0) => {
-    const childFolders = getFoldersByParent(spaceId, parentId);
-    const docsInFolder = getDocumentsByFolder(parentId);
+    const childFolders = getFoldersByParent(spaceId, parentId).filter(folder => 
+      currentUser ? canView(currentUser.id, folder) : true
+    );
+    const docsInFolder = getDocumentsByFolder(parentId).filter(doc => {
+      const docFolder = doc.folderId ? folders.find(f => f.id === doc.folderId) : null;
+      return currentUser ? canView(currentUser.id, docFolder) : true;
+    });
 
     return (
       <>
@@ -505,9 +522,15 @@ export const Documents: React.FC = () => {
               className="w-full pl-9 pr-4 py-2 bg-primary-50/50 border border-transparent rounded-lg text-sm placeholder:text-primary-400 focus:outline-none focus:bg-white focus:border-accent-300 focus:ring-2 focus:ring-accent-500/20 transition-all"
             />
           </div>
-          {searchResults.length > 0 && (
+          {searchResults.filter(doc => {
+            const docFolder = doc.folderId ? folders.find(f => f.id === doc.folderId) : null;
+            return currentUser ? canView(currentUser.id, docFolder) : true;
+          }).length > 0 && (
             <div className="mt-2 max-h-48 overflow-y-auto">
-              {searchResults.map((doc) => (
+              {searchResults.filter(doc => {
+                const docFolder = doc.folderId ? folders.find(f => f.id === doc.folderId) : null;
+                return currentUser ? canView(currentUser.id, docFolder) : true;
+              }).map((doc) => (
                 <div
                   key={doc.id}
                   className="p-2 rounded-lg hover:bg-primary-50 cursor-pointer text-sm"
@@ -564,7 +587,10 @@ export const Documents: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto scrollbar-thin p-3">
           {currentSpaceId && renderFolderTree(currentSpaceId, null)}
-          {currentSpaceId && getDocumentsByFolder(null).map((doc) => (
+          {currentSpaceId && getDocumentsByFolder(null).filter(doc => {
+            const docFolder = doc.folderId ? folders.find(f => f.id === doc.folderId) : null;
+            return currentUser ? canView(currentUser.id, docFolder) : true;
+          }).map((doc) => (
             <div
               key={doc.id}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
@@ -620,154 +646,182 @@ export const Documents: React.FC = () => {
       </div>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="h-14 bg-white border-b border-primary-100 px-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: activeSpace?.color || '#1E3A5F' }}
-            />
-            <span className="text-sm text-primary-500">{activeSpace?.name}</span>
-            <ChevronRight className="w-4 h-4 text-primary-300" />
-            <input
-              type="text"
-              value={activeDoc?.title || ''}
-              onChange={(e) => canEditDoc && updateDocumentTitle(currentDocId, e.target.value)}
-              disabled={!canEditDoc}
-              className={`text-lg font-display font-semibold bg-transparent border-none outline-none focus:ring-0 ${
-                canEditDoc ? 'text-primary-800' : 'text-primary-500 cursor-not-allowed'
-              }`}
-            />
-            {activeDoc?.updatedAt && (
-              <span className="text-xs text-primary-400 ml-4">
-                <Clock className="w-3.5 h-3.5 inline mr-1" />
-                {formatRelativeTime(activeDoc.updatedAt)}
-              </span>
-            )}
-            {activeFolder && currentUser && (
-              <Badge variant={canManageDoc ? 'success' : canEditDoc ? 'accent' : 'default'} size="sm" className="ml-3">
-                {canManageDoc ? '管理者' : canEditDoc ? '编辑者' : '查看者'}
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 mr-2">
-              <Avatar src={getUserById('2')?.avatar} name="张三" size="xs" />
-              <Avatar src={getUserById('3')?.avatar} name="李四" size="xs" className="-ml-1" />
-              <div className="w-6 h-6 rounded-full bg-accent-100 text-accent-600 text-xs flex items-center justify-center -ml-1 font-medium">
-                +2
-              </div>
+        {docExists && canViewDoc && (
+          <div className="h-14 bg-white border-b border-primary-100 px-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: activeSpace?.color || '#1E3A5F' }}
+              />
+              <span className="text-sm text-primary-500">{activeSpace?.name}</span>
+              <ChevronRight className="w-4 h-4 text-primary-300" />
+              <input
+                type="text"
+                value={activeDoc?.title || ''}
+                onChange={(e) => canEditDoc && updateDocumentTitle(currentDocId, e.target.value)}
+                disabled={!canEditDoc}
+                className={`text-lg font-display font-semibold bg-transparent border-none outline-none focus:ring-0 ${
+                  canEditDoc ? 'text-primary-800' : 'text-primary-500 cursor-not-allowed'
+                }`}
+              />
+              {activeDoc?.updatedAt && (
+                <span className="text-xs text-primary-400 ml-4">
+                  <Clock className="w-3.5 h-3.5 inline mr-1" />
+                  {formatRelativeTime(activeDoc.updatedAt)}
+                </span>
+              )}
+              {activeFolder && currentUser && (
+                <Badge variant={canManageDoc ? 'success' : canEditDoc ? 'accent' : 'default'} size="sm" className="ml-3">
+                  {canManageDoc ? '管理者' : canEditDoc ? '编辑者' : '查看者'}
+                </Badge>
+              )}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              leftIcon={<History className="w-4 h-4" />}
-              onClick={() => setShowVersionModal(true)}
-            >
-              版本历史
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              leftIcon={<MessageSquare className="w-4 h-4" />}
-              onClick={() => setShowCommentModal(true)}
-            >
-              评论 ({docComments.length})
-            </Button>
-            <div className="relative group">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 mr-2">
+                <Avatar src={getUserById('2')?.avatar} name="张三" size="xs" />
+                <Avatar src={getUserById('3')?.avatar} name="李四" size="xs" className="-ml-1" />
+                <div className="w-6 h-6 rounded-full bg-accent-100 text-accent-600 text-xs flex items-center justify-center -ml-1 font-medium">
+                  +2
+                </div>
+              </div>
               <Button
                 variant="ghost"
                 size="sm"
-                leftIcon={<Download className="w-4 h-4" />}
-                rightIcon={<ChevronDown className="w-4 h-4" />}
-                onClick={() => setShowExportMenu(!showExportMenu)}
+                leftIcon={<History className="w-4 h-4" />}
+                onClick={() => setShowVersionModal(true)}
               >
-                导出
+                版本历史
               </Button>
-              <AnimatePresence>
-                {showExportMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="absolute right-0 top-full mt-1 w-40 bg-white rounded-xl shadow-float border border-primary-100 py-1 z-50"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      onClick={() => {
-                        handleExport('md');
-                        setShowExportMenu(false);
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2"
-                    >
-                      <FileText className="w-4 h-4" />
-                      Markdown (.md)
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleExport('pdf');
-                        setShowExportMenu(false);
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2"
-                    >
-                      <FileDown className="w-4 h-4" />
-                      PDF (.pdf)
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleExport('docx');
-                        setShowExportMenu(false);
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2"
-                    >
-                      <FileSpreadsheet className="w-4 h-4" />
-                      Word (.docx)
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-            {canEditDoc && (
               <Button
-                variant="primary"
+                variant="ghost"
                 size="sm"
-                leftIcon={<CheckSquare className="w-4 h-4" />}
-                onClick={() => {
-                  if (activeDoc) {
-                    const title = prompt('请输入任务标题：', activeDoc.title);
-                    if (title) {
-                      createTask({ title, documentId: currentDocId });
-                      alert('任务创建成功！');
-                    }
-                  }
-                }}
+                leftIcon={<MessageSquare className="w-4 h-4" />}
+                onClick={() => setShowCommentModal(true)}
               >
-                创建任务
+                评论 ({docComments.length})
               </Button>
-            )}
+              <div className="relative group">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leftIcon={<Download className="w-4 h-4" />}
+                  rightIcon={<ChevronDown className="w-4 h-4" />}
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                >
+                  导出
+                </Button>
+                <AnimatePresence>
+                  {showExportMenu && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute right-0 top-full mt-1 w-40 bg-white rounded-xl shadow-float border border-primary-100 py-1 z-50"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        onClick={async () => {
+                          await handleExport('md');
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2"
+                      >
+                        <FileText className="w-4 h-4" />
+                        Markdown (.md)
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await handleExport('pdf');
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2"
+                      >
+                        <FileDown className="w-4 h-4" />
+                        PDF (.pdf)
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await handleExport('docx');
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2"
+                      >
+                        <FileSpreadsheet className="w-4 h-4" />
+                        Word (.doc)
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              {canEditDoc && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  leftIcon={<CheckSquare className="w-4 h-4" />}
+                  onClick={() => {
+                    if (activeDoc) {
+                      const title = prompt('请输入任务标题：', activeDoc.title);
+                      if (title) {
+                        createTask({ title, documentId: currentDocId });
+                        alert('任务创建成功！');
+                      }
+                    }
+                  }}
+                >
+                  创建任务
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex-1 overflow-y-auto scrollbar-thin bg-white">
-          <div className="max-w-4xl mx-auto py-12 px-8">
-            <AnimatePresence>
-              {activeDoc?.content.map((block) => renderBlock(block))}
-            </AnimatePresence>
-            {canEditDoc && (
-              <button
-                onClick={() => activeDoc && handleAddBlock(activeDoc.content[activeDoc.content.length - 1].id)}
-                className="mt-4 flex items-center gap-2 px-3 py-2 text-primary-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+          {!docExists ? (
+            <div className="flex-1 flex flex-col items-center justify-center h-full p-12 text-center">
+              <FileText className="w-16 h-16 text-primary-200 mb-4" />
+              <p className="text-primary-500 text-lg mb-2">文档不存在或已被删除</p>
+              <p className="text-primary-400 text-sm mb-6">您访问的文档链接无效，请返回文档列表</p>
+              <Button
+                variant="primary"
+                onClick={() => navigate('/documents')}
               >
-                <Plus className="w-4 h-4" />
-                <span className="text-sm">添加新块</span>
-              </button>
-            )}
-            {!canEditDoc && activeFolder && (
-              <div className="mt-8 p-4 bg-primary-50 rounded-xl text-center">
-                <Lock className="w-8 h-8 text-primary-300 mx-auto mb-2" />
-                <p className="text-sm text-primary-500">您只有查看权限，无法编辑此文档</p>
-              </div>
-            )}
-          </div>
+                返回文档列表
+              </Button>
+            </div>
+          ) : !canViewDoc ? (
+            <div className="flex-1 flex flex-col items-center justify-center h-full p-12 text-center">
+              <Lock className="w-16 h-16 text-primary-200 mb-4" />
+              <p className="text-primary-500 text-lg mb-2">您没有权限查看此文档</p>
+              <p className="text-primary-400 text-sm mb-6">请联系文件夹管理员获取访问权限</p>
+              <Button
+                variant="primary"
+                onClick={() => navigate('/documents')}
+              >
+                返回文档列表
+              </Button>
+            </div>
+          ) : (
+            <div className="max-w-4xl mx-auto py-12 px-8">
+              <AnimatePresence>
+                {activeDoc?.content.map((block) => renderBlock(block))}
+              </AnimatePresence>
+              {canEditDoc && (
+                <button
+                  onClick={() => activeDoc && handleAddBlock(activeDoc.content[activeDoc.content.length - 1].id)}
+                  className="mt-4 flex items-center gap-2 px-3 py-2 text-primary-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="text-sm">添加新块</span>
+                </button>
+              )}
+              {!canEditDoc && activeFolder && (
+                <div className="mt-8 p-4 bg-primary-50 rounded-xl text-center">
+                  <Lock className="w-8 h-8 text-primary-300 mx-auto mb-2" />
+                  <p className="text-sm text-primary-500">您只有查看权限，无法编辑此文档</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

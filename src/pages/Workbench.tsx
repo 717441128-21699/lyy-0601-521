@@ -27,7 +27,8 @@ import { useDocumentStore } from '../store/useDocumentStore';
 import { useTaskStore } from '../store/useTaskStore';
 import { useScheduleStore } from '../store/useScheduleStore';
 import { useAuthStore } from '../store/useAuthStore';
-import { formatDateLabel, formatRelativeTime } from '../utils/date';
+import { formatRelativeTime, formatDateTime, formatDateLabel } from '../utils/date';
+import { canView } from '../utils/permission';
 import { Avatar } from '../components/ui/Avatar';
 import { Badge, StatusBadge, PriorityBadge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -72,7 +73,7 @@ const item = {
 
 export const Workbench: React.FC = () => {
   const navigate = useNavigate();
-  const { documents, spaces, activities } = useDocumentStore();
+  const { documents, spaces, activities, folders } = useDocumentStore();
   const { tasks, getMyTasks } = useTaskStore();
   const { schedules, getMySchedules } = useScheduleStore();
   const { currentUser, getUserById } = useAuthStore();
@@ -80,6 +81,10 @@ export const Workbench: React.FC = () => {
   const myTasks = getMyTasks().slice(0, 5);
   const mySchedules = getMySchedules().slice(0, 3);
   const recentDocs = [...documents]
+    .filter(doc => {
+      const docFolder = doc.folderId ? folders.find(f => f.id === doc.folderId) : null;
+      return currentUser ? canView(currentUser.id, docFolder) : true;
+    })
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
     .slice(0, 4);
   const todoCount = tasks.filter(t => t.status === 'todo').length;

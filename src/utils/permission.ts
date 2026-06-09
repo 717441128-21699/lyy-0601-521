@@ -20,7 +20,7 @@ export const checkPermission = (
   if (currentUser.role === 'admin') return true;
   
   if (!folder) {
-    return requiredRole === 'viewer' || requiredRole === 'editor';
+    return true;
   }
   
   const userRole = folder.permissions[userId] as PermissionRole | undefined;

@@ -2,6 +2,19 @@ import type { Document, Block } from '../types';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
+const getTableRows = (block: Block): string[][] => {
+  if (block.rows && block.rows.length > 0) {
+    return block.rows;
+  }
+  if (block.content && block.content.includes('|')) {
+    return block.content
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => line.split('|').map(cell => cell.trim()).filter(cell => cell !== ''));
+  }
+  return [];
+};
+
 const blockToMarkdown = (block: Block, indent: number = 0): string => {
   const prefix = '  '.repeat(indent);
 
@@ -30,17 +43,19 @@ const blockToMarkdown = (block: Block, indent: number = 0): string => {
       return `\`\`\`\n${block.content}\n\`\`\`\n\n`;
     case 'todo':
       return `${prefix}- [${block.checked ? 'x' : ' '}] ${block.content}\n\n`;
-    case 'table':
-      if (block.rows && block.rows.length > 0) {
-        const header = block.rows[0];
+    case 'table': {
+      const rows = getTableRows(block);
+      if (rows.length > 0) {
+        const header = rows[0];
         let table = `| ${header.join(' | ')} |\n`;
         table += `| ${header.map(() => '---').join(' | ')} |\n`;
-        block.rows.slice(1).forEach(row => {
+        rows.slice(1).forEach(row => {
           table += `| ${row.join(' | ')} |\n`;
         });
         return table + '\n';
       }
       return '';
+    }
     case 'image':
       return `![图片](${block.content})\n\n`;
     default:
@@ -76,10 +91,11 @@ const blockToHtml = (block: Block): string => {
       return `<pre style="background:#1E3A5F;color:#fff;padding:15px;border-radius:8px;overflow-x:auto;margin:16px 0;"><code style="font-family:'Consolas','Monaco',monospace;font-size:14px;">${block.content}</code></pre>`;
     case 'todo':
       return `<div style="display:flex;align-items:center;gap:10px;margin:10px 0;padding:8px 12px;background:#f8fafc;border-radius:8px;"><input type="checkbox" ${block.checked ? 'checked' : ''} disabled style="width:18px;height:18px;accent-color:#FF6B35;"> <span style="color:#333;${block.checked ? 'text-decoration:line-through;color:#999;' : ''}">${block.content}</span></div>`;
-    case 'table':
-      if (block.rows && block.rows.length > 0) {
+    case 'table': {
+      const rows = getTableRows(block);
+      if (rows.length > 0) {
         let html = '<table style="border-collapse:collapse;width:100%;margin:20px 0;font-size:14px;">';
-        block.rows.forEach((row, rowIndex) => {
+        rows.forEach((row, rowIndex) => {
           html += '<tr>';
           row.forEach(cell => {
             if (rowIndex === 0) {
@@ -94,6 +110,7 @@ const blockToHtml = (block: Block): string => {
         return html;
       }
       return '';
+    }
     case 'image':
       return `<img src="${block.content}" alt="图片" style="max-width:100%;height:auto;border-radius:8px;margin:16px 0;box-shadow:0 2px 8px rgba(0,0,0,0.1);">`;
     default:

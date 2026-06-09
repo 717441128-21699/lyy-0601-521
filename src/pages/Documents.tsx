@@ -106,7 +106,20 @@ export const Documents: React.FC = () => {
   const currentSpaceId = spaceId || activeSpaceId || 'space1';
   const requestedDocId = docId || activeDocumentId;
   const activeSpace = spaces.find(s => s.id === currentSpaceId);
-  const activeDoc = requestedDocId ? documents.find(d => d.id === requestedDocId) : documents.find(d => d.spaceId === currentSpaceId && !d.folderId) || documents[0];
+  
+  let activeDoc: typeof documents[0] | undefined;
+  if (requestedDocId) {
+    activeDoc = documents.find(d => d.id === requestedDocId);
+  } else {
+    const defaultDoc = documents.find(d => d.spaceId === currentSpaceId && !d.folderId) || documents[0];
+    const defaultFolder = defaultDoc?.folderId ? folders.find(f => f.id === defaultDoc.folderId) : null;
+    const canViewDefault = currentUser ? canView(currentUser.id, defaultFolder) : true;
+    activeDoc = canViewDefault ? defaultDoc : documents.find(d => {
+      const folder = d.folderId ? folders.find(f => f.id === d.folderId) : null;
+      return currentUser ? canView(currentUser.id, folder) : true;
+    });
+  }
+  
   const activeFolder = activeDoc?.folderId ? folders.find(f => f.id === activeDoc.folderId) : null;
   const docExists = !requestedDocId || !!activeDoc;
   const currentDocId = activeDoc?.id || '';
@@ -114,9 +127,9 @@ export const Documents: React.FC = () => {
   const docComments = currentDocId ? getCommentsByTarget('document', currentDocId) : [];
   const searchResults = searchKeyword ? searchDocuments(searchKeyword) : [];
 
-  const canViewDoc = currentUser ? (activeFolder ? canView(currentUser.id, activeFolder) : true) : false;
-  const canEditDoc = currentUser ? (activeFolder ? canEdit(currentUser.id, activeFolder) : true) : false;
-  const canManageDoc = currentUser ? (activeFolder ? canManage(currentUser.id, activeFolder) : true) : false;
+  const canViewDoc = activeDoc && currentUser ? (activeFolder ? canView(currentUser.id, activeFolder) : true) : false;
+  const canEditDoc = activeDoc && currentUser ? (activeFolder ? canEdit(currentUser.id, activeFolder) : true) : false;
+  const canManageDoc = activeDoc && currentUser ? (activeFolder ? canManage(currentUser.id, activeFolder) : true) : false;
 
   useEffect(() => {
     if (spaceId && spaceId !== activeSpaceId) {
@@ -193,6 +206,10 @@ export const Documents: React.FC = () => {
   };
 
   const handleSaveVersion = () => {
+    if (!canEditDoc) {
+      alert('您没有编辑权限，无法保存版本');
+      return;
+    }
     const remark = prompt('请输入版本备注：');
     if (remark !== null) {
       saveVersion(currentDocId, remark || '保存版本');
@@ -202,6 +219,10 @@ export const Documents: React.FC = () => {
   };
 
   const handleRestoreVersion = (versionId: string) => {
+    if (!canEditDoc) {
+      alert('您没有编辑权限，无法恢复版本');
+      return;
+    }
     if (confirm('确定要恢复到此版本吗？当前内容将被覆盖。')) {
       restoreVersion(currentDocId, versionId);
       setShowVersionModal(false);
@@ -459,7 +480,7 @@ export const Documents: React.FC = () => {
     const childFolders = getFoldersByParent(spaceId, parentId).filter(folder => 
       currentUser ? canView(currentUser.id, folder) : true
     );
-    const docsInFolder = getDocumentsByFolder(parentId).filter(doc => {
+    const docsInFolder = getDocumentsByFolder(spaceId, parentId).filter(doc => {
       const docFolder = doc.folderId ? folders.find(f => f.id === doc.folderId) : null;
       return currentUser ? canView(currentUser.id, docFolder) : true;
     });
@@ -587,7 +608,7 @@ export const Documents: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto scrollbar-thin p-3">
           {currentSpaceId && renderFolderTree(currentSpaceId, null)}
-          {currentSpaceId && getDocumentsByFolder(null).filter(doc => {
+          {currentSpaceId && getDocumentsByFolder(currentSpaceId, null).filter(doc => {
             const docFolder = doc.folderId ? folders.find(f => f.id === doc.folderId) : null;
             return currentUser ? canView(currentUser.id, docFolder) : true;
           }).map((doc) => (
@@ -831,9 +852,11 @@ export const Documents: React.FC = () => {
         title="版本历史"
         size="lg"
         footer={
-          <Button variant="primary" onClick={handleSaveVersion}>
-            保存当前版本
-          </Button>
+          canEditDoc ? (
+            <Button variant="primary" onClick={handleSaveVersion}>
+              保存当前版本
+            </Button>
+          ) : null
         }
       >
         <div className="space-y-3">
@@ -864,7 +887,7 @@ export const Documents: React.FC = () => {
                     )}
                   </div>
                   <p className="text-sm text-primary-600 mt-2">{version.remark}</p>
-                  {index > 0 && (
+                  {index > 0 && canEditDoc && (
                     <div className="mt-3 flex gap-2">
                       <Button
                         variant="secondary"

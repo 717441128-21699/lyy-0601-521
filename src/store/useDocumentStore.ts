@@ -32,7 +32,7 @@ interface DocumentState {
   searchDocuments: (keyword: string) => Document[];
   toggleFavorite: (spaceId: string) => void;
   getDocumentsBySpace: (spaceId: string) => Document[];
-  getDocumentsByFolder: (folderId: string | null) => Document[];
+  getDocumentsByFolder: (spaceId: string, folderId: string | null) => Document[];
   getFoldersBySpace: (spaceId: string) => Folder[];
   getFoldersByParent: (spaceId: string, parentId: string | null) => Folder[];
   getVersionsByDocument: (docId: string) => DocumentVersion[];
@@ -281,8 +281,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       return get().documents.filter(d => d.spaceId === spaceId && d.folderId === null);
     },
 
-    getDocumentsByFolder: (folderId) => {
-      return get().documents.filter(d => d.folderId === folderId);
+    getDocumentsByFolder: (spaceId, folderId) => {
+      return get().documents.filter(d => d.spaceId === spaceId && d.folderId === folderId);
     },
 
     getFoldersBySpace: (spaceId) => {

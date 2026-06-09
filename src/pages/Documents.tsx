@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText,
+  FileDown,
+  FileSpreadsheet,
   Folder,
   Star,
   MoreHorizontal,
@@ -23,6 +25,7 @@ import {
   Users,
   Clock,
   Check,
+  Lock,
 } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDocumentStore } from '../store/useDocumentStore';
@@ -31,6 +34,7 @@ import { useTaskStore } from '../store/useTaskStore';
 import { useMessageStore } from '../store/useMessageStore';
 import { formatDateTime, formatRelativeTime } from '../utils/date';
 import { exportDocument } from '../utils/export';
+import { canEdit, canManage } from '../utils/permission';
 import { Avatar } from '../components/ui/Avatar';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -97,14 +101,19 @@ export const Documents: React.FC = () => {
   const [showBlockMenu, setShowBlockMenu] = useState<string | null>(null);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionSearch, setMentionSearch] = useState('');
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const currentSpaceId = spaceId || activeSpaceId || 'space1';
   const currentDocId = docId || activeDocumentId || 'doc1';
   const activeSpace = spaces.find(s => s.id === currentSpaceId);
   const activeDoc = documents.find(d => d.id === currentDocId);
+  const activeFolder = activeDoc?.folderId ? folders.find(f => f.id === activeDoc.folderId) : null;
   const docVersions = getVersionsByDocument(currentDocId);
   const docComments = getCommentsByTarget('document', currentDocId);
   const searchResults = searchKeyword ? searchDocuments(searchKeyword) : [];
+
+  const canEditDoc = currentUser ? (activeFolder ? canEdit(currentUser.id, activeFolder) : true) : false;
+  const canManageDoc = currentUser ? (activeFolder ? canManage(currentUser.id, activeFolder) : true) : false;
 
   const toggleFolder = (folderId: string) => {
     setExpandedFolders(prev => {
@@ -347,38 +356,42 @@ export const Documents: React.FC = () => {
         }`}
         onClick={() => setSelectedBlockId(block.id)}
       >
-        <div className="flex items-start gap-1 opacity-0 group-hover:opacity-100 transition-opacity pt-1">
-          <button
-            className="p-0.5 rounded hover:bg-primary-100 text-primary-400 hover:text-primary-600"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowBlockMenu(isMenuOpen ? null : block.id);
-            }}
-          >
-            <GripVertical className="w-4 h-4" />
-          </button>
-          <button
-            className="p-0.5 rounded hover:bg-primary-100 text-primary-400 hover:text-primary-600"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleAddBlock(block.id);
-            }}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
+        {canEditDoc && (
+          <div className="flex items-start gap-1 opacity-0 group-hover:opacity-100 transition-opacity pt-1">
+            <button
+              className="p-0.5 rounded hover:bg-primary-100 text-primary-400 hover:text-primary-600"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowBlockMenu(isMenuOpen ? null : block.id);
+              }}
+            >
+              <GripVertical className="w-4 h-4" />
+            </button>
+            <button
+              className="p-0.5 rounded hover:bg-primary-100 text-primary-400 hover:text-primary-600"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAddBlock(block.id);
+              }}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         <div className="flex-1 min-w-0">
           <div
-            contentEditable
+            contentEditable={canEditDoc}
             suppressContentEditableWarning
-            onBlur={(e) => handleBlockChange(block.id, e.currentTarget.textContent || '')}
-            className="outline-none min-h-[1.5em] focus:bg-white rounded px-1"
+            onBlur={(e) => canEditDoc && handleBlockChange(block.id, e.currentTarget.textContent || '')}
+            className={`outline-none min-h-[1.5em] focus:bg-white rounded px-1 ${
+              !canEditDoc ? 'cursor-default' : ''
+            }`}
           >
             {renderBlockContent()}
           </div>
 
-          {isMenuOpen && (
+          {isMenuOpen && canEditDoc && (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -571,34 +584,38 @@ export const Documents: React.FC = () => {
         </div>
 
         <div className="p-3 border-t border-primary-100 space-y-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            className="w-full"
-            leftIcon={<Plus className="w-4 h-4" />}
-            onClick={() => {
-              const title = prompt('请输入文档标题：');
-              if (title) {
-                createDocument({ title, spaceId: currentSpaceId });
-              }
-            }}
-          >
-            新建文档
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full"
-            leftIcon={<Folder className="w-4 h-4" />}
-            onClick={() => {
-              const name = prompt('请输入文件夹名称：');
-              if (name) {
-                createFolder({ name, spaceId: currentSpaceId });
-              }
-            }}
-          >
-            新建文件夹
-          </Button>
+          {canEditDoc && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-full"
+                leftIcon={<Plus className="w-4 h-4" />}
+                onClick={() => {
+                  const title = prompt('请输入文档标题：');
+                  if (title) {
+                    createDocument({ title, spaceId: currentSpaceId });
+                  }
+                }}
+              >
+                新建文档
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                leftIcon={<Folder className="w-4 h-4" />}
+                onClick={() => {
+                  const name = prompt('请输入文件夹名称：');
+                  if (name) {
+                    createFolder({ name, spaceId: currentSpaceId });
+                  }
+                }}
+              >
+                新建文件夹
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -614,14 +631,22 @@ export const Documents: React.FC = () => {
             <input
               type="text"
               value={activeDoc?.title || ''}
-              onChange={(e) => updateDocumentTitle(currentDocId, e.target.value)}
-              className="text-lg font-display font-semibold text-primary-800 bg-transparent border-none outline-none focus:ring-0"
+              onChange={(e) => canEditDoc && updateDocumentTitle(currentDocId, e.target.value)}
+              disabled={!canEditDoc}
+              className={`text-lg font-display font-semibold bg-transparent border-none outline-none focus:ring-0 ${
+                canEditDoc ? 'text-primary-800' : 'text-primary-500 cursor-not-allowed'
+              }`}
             />
             {activeDoc?.updatedAt && (
               <span className="text-xs text-primary-400 ml-4">
                 <Clock className="w-3.5 h-3.5 inline mr-1" />
                 {formatRelativeTime(activeDoc.updatedAt)}
               </span>
+            )}
+            {activeFolder && currentUser && (
+              <Badge variant={canManageDoc ? 'success' : canEditDoc ? 'accent' : 'default'} size="sm" className="ml-3">
+                {canManageDoc ? '管理者' : canEditDoc ? '编辑者' : '查看者'}
+              </Badge>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -648,52 +673,77 @@ export const Documents: React.FC = () => {
             >
               评论 ({docComments.length})
             </Button>
-            <div className="relative">
+            <div className="relative group">
               <Button
                 variant="ghost"
                 size="sm"
                 leftIcon={<Download className="w-4 h-4" />}
                 rightIcon={<ChevronDown className="w-4 h-4" />}
+                onClick={() => setShowExportMenu(!showExportMenu)}
               >
                 导出
               </Button>
-              <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-xl shadow-float border border-primary-100 py-1 z-50 hidden group-hover:block">
-                <button
-                  onClick={() => handleExport('md')}
-                  className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50"
-                >
-                  Markdown (.md)
-                </button>
-                <button
-                  onClick={() => handleExport('pdf')}
-                  className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50"
-                >
-                  PDF (.pdf)
-                </button>
-                <button
-                  onClick={() => handleExport('docx')}
-                  className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50"
-                >
-                  Word (.docx)
-                </button>
-              </div>
+              <AnimatePresence>
+                {showExportMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="absolute right-0 top-full mt-1 w-40 bg-white rounded-xl shadow-float border border-primary-100 py-1 z-50"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => {
+                        handleExport('md');
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2"
+                    >
+                      <FileText className="w-4 h-4" />
+                      Markdown (.md)
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleExport('pdf');
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2"
+                    >
+                      <FileDown className="w-4 h-4" />
+                      PDF (.pdf)
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleExport('docx');
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" />
+                      Word (.docx)
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<CheckSquare className="w-4 h-4" />}
-              onClick={() => {
-                if (activeDoc) {
-                  const title = prompt('请输入任务标题：', activeDoc.title);
-                  if (title) {
-                    createTask({ title, documentId: currentDocId });
-                    alert('任务创建成功！');
+            {canEditDoc && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<CheckSquare className="w-4 h-4" />}
+                onClick={() => {
+                  if (activeDoc) {
+                    const title = prompt('请输入任务标题：', activeDoc.title);
+                    if (title) {
+                      createTask({ title, documentId: currentDocId });
+                      alert('任务创建成功！');
+                    }
                   }
-                }
-              }}
-            >
-              创建任务
-            </Button>
+                }}
+              >
+                创建任务
+              </Button>
+            )}
           </div>
         </div>
 
@@ -702,13 +752,21 @@ export const Documents: React.FC = () => {
             <AnimatePresence>
               {activeDoc?.content.map((block) => renderBlock(block))}
             </AnimatePresence>
-            <button
-              onClick={() => activeDoc && handleAddBlock(activeDoc.content[activeDoc.content.length - 1].id)}
-              className="mt-4 flex items-center gap-2 px-3 py-2 text-primary-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="text-sm">添加新块</span>
-            </button>
+            {canEditDoc && (
+              <button
+                onClick={() => activeDoc && handleAddBlock(activeDoc.content[activeDoc.content.length - 1].id)}
+                className="mt-4 flex items-center gap-2 px-3 py-2 text-primary-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="text-sm">添加新块</span>
+              </button>
+            )}
+            {!canEditDoc && activeFolder && (
+              <div className="mt-8 p-4 bg-primary-50 rounded-xl text-center">
+                <Lock className="w-8 h-8 text-primary-300 mx-auto mb-2" />
+                <p className="text-sm text-primary-500">您只有查看权限，无法编辑此文档</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

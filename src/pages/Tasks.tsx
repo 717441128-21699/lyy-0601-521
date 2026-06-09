@@ -398,9 +398,8 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, isOpen, onClose
 };
 
 export const Tasks: React.FC = () => {
-  const { tasks, getTasksByStatus, updateTaskStatus, filterStatus, filterAssignee, filterPriority, setFilterStatus, setFilterAssignee, setFilterPriority } = useTaskStore();
+  const { tasks, getTasksByStatus, updateTaskStatus, filterStatus, filterAssignee, filterPriority, setFilterStatus, setFilterAssignee, setFilterPriority, viewMode, setViewMode, getFilteredTasks } = useTaskStore();
   const { users } = useAuthStore();
-  const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showNewTaskModal, setShowNewTaskModal] = useState(false);
@@ -479,6 +478,14 @@ export const Tasks: React.FC = () => {
 
   const draggedTask = draggedTaskId ? tasks.find(t => t.id === draggedTaskId) : null;
 
+  const filteredTasks = getFilteredTasks();
+
+  const getFilteredTasksByStatus = (status: TaskStatus) => {
+    return filteredTasks.filter(t => t.status === status);
+  };
+
+  const hasActiveFilters = filterStatus !== 'all' || filterAssignee !== 'all' || filterPriority !== 'all';
+
   return (
     <motion.div
       variants={containerVariants}
@@ -495,9 +502,9 @@ export const Tasks: React.FC = () => {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1 bg-primary-50 rounded-lg p-1">
             <button
-              onClick={() => setViewMode('board')}
+              onClick={() => setViewMode('kanban')}
               className={`p-2 rounded-md transition-all ${
-                viewMode === 'board' ? 'bg-white shadow text-primary-700' : 'text-primary-400 hover:text-primary-600'
+                viewMode === 'kanban' ? 'bg-white shadow text-primary-700' : 'text-primary-400 hover:text-primary-600'
               }`}
             >
               <LayoutGrid className="w-4 h-4" />
@@ -559,7 +566,28 @@ export const Tasks: React.FC = () => {
         </select>
       </motion.div>
 
-      {viewMode === 'board' ? (
+      {filteredTasks.length === 0 && hasActiveFilters ? (
+        <motion.div
+          variants={itemVariants}
+          className="flex-1 flex flex-col items-center justify-center text-center p-12"
+        >
+          <CheckSquare className="w-16 h-16 text-primary-200 mb-4" />
+          <p className="text-primary-400 text-lg">没有找到匹配的任务</p>
+          <p className="text-primary-300 text-sm mt-1">尝试调整筛选条件或清除筛选</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-4"
+            onClick={() => {
+              setFilterStatus('all');
+              setFilterAssignee('all');
+              setFilterPriority('all');
+            }}
+          >
+            清除所有筛选
+          </Button>
+        </motion.div>
+      ) : viewMode === 'kanban' ? (
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -568,7 +596,7 @@ export const Tasks: React.FC = () => {
         >
           <motion.div variants={itemVariants} className="flex-1 grid grid-cols-4 gap-4 min-h-0">
             {statusColumns.map(column => {
-              const columnTasks = getTasksByStatus(column.id);
+              const columnTasks = getFilteredTasksByStatus(column.id);
               return (
                 <div
                   key={column.id}
@@ -627,7 +655,7 @@ export const Tasks: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-primary-100">
-              {tasks.map(task => {
+              {filteredTasks.map(task => {
                 const assignee = task.assigneeId ? users.find(u => u.id === task.assigneeId) : null;
                 const completed = task.subtasks.filter(st => st.isCompleted).length;
                 const total = task.subtasks.length;

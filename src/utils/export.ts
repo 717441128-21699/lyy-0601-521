@@ -2,7 +2,7 @@ import type { Document, Block } from '../types';
 
 const blockToMarkdown = (block: Block, indent: number = 0): string => {
   const prefix = '  '.repeat(indent);
-  
+
   switch (block.type) {
     case 'heading1':
       return `${prefix}# ${block.content}\n\n`;
@@ -29,16 +29,16 @@ const blockToMarkdown = (block: Block, indent: number = 0): string => {
     case 'todo':
       return `${prefix}- [${block.checked ? 'x' : ' '}] ${block.content}\n\n`;
     case 'table':
-      const rows = block.content.split('\n');
-      if (rows.length < 2) return '';
-      const header = rows[0].split('|');
-      let table = `| ${header.join(' | ')} |\n`;
-      table += `| ${header.map(() => '---').join(' | ')} |\n`;
-      rows.slice(1).forEach(row => {
-        const cells = row.split('|');
-        table += `| ${cells.join(' | ')} |\n`;
-      });
-      return table + '\n';
+      if (block.rows && block.rows.length > 0) {
+        const header = block.rows[0];
+        let table = `| ${header.join(' | ')} |\n`;
+        table += `| ${header.map(() => '---').join(' | ')} |\n`;
+        block.rows.slice(1).forEach(row => {
+          table += `| ${row.join(' | ')} |\n`;
+        });
+        return table + '\n';
+      }
+      return '';
     case 'image':
       return `![图片](${block.content})\n\n`;
     default:
@@ -54,8 +54,66 @@ export const exportToMarkdown = (document: Document): string => {
   return md;
 };
 
-export const downloadFile = (content: string, filename: string, type: string): void => {
-  const blob = new Blob([content], { type });
+const blockToHtml = (block: Block): string => {
+  switch (block.type) {
+    case 'heading1':
+      return `<h1>${block.content}</h1>`;
+    case 'heading2':
+      return `<h2>${block.content}</h2>`;
+    case 'heading3':
+      return `<h3>${block.content}</h3>`;
+    case 'paragraph':
+      return `<p>${block.content}</p>`;
+    case 'bulletList':
+      return `<ul><li>${block.content}</li></ul>`;
+    case 'numberedList':
+      return `<ol><li>${block.content}</li></ol>`;
+    case 'quote':
+      return `<blockquote>${block.content}</blockquote>`;
+    case 'code':
+      return `<pre><code>${block.content}</code></pre>`;
+    case 'todo':
+      return `<div style="display:flex;align-items:center;gap:8px;"><input type="checkbox" ${block.checked ? 'checked' : ''} disabled> <span>${block.content}</span></div>`;
+    case 'table':
+      if (block.rows && block.rows.length > 0) {
+        let html = '<table style="border-collapse:collapse;width:100%;margin:16px 0;">';
+        block.rows.forEach((row, rowIndex) => {
+          html += '<tr>';
+          row.forEach(cell => {
+            if (rowIndex === 0) {
+              html += `<th style="border:1px solid #ddd;padding:8px 12px;text-align:left;background:#f8fafc;">${cell}</th>`;
+            } else {
+              html += `<td style="border:1px solid #ddd;padding:8px 12px;text-align:left;">${cell}</td>`;
+            }
+          });
+          html += '</tr>';
+        });
+        html += '</table>';
+        return html;
+      }
+      return '';
+    case 'image':
+      return `<img src="${block.content}" alt="图片" style="max-width:100%;border-radius:8px;margin:10px 0;">`;
+    default:
+      return `<p>${block.content}</p>`;
+  }
+};
+
+const documentToHtml = (document: Document): string => {
+  let html = `<h1 style="color:#1E3A5F;border-bottom:2px solid #FF6B35;padding-bottom:10px;">${document.title}</h1>`;
+  document.content.forEach(block => {
+    html += blockToHtml(block);
+  });
+  return html;
+};
+
+export const downloadFile = (content: string | Blob, filename: string, type: string): void => {
+  let blob: Blob;
+  if (typeof content === 'string') {
+    blob = new Blob([content], { type });
+  } else {
+    blob = content;
+  }
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -66,72 +124,241 @@ export const downloadFile = (content: string, filename: string, type: string): v
   URL.revokeObjectURL(url);
 };
 
-export const exportDocument = (document: Document, format: 'md' | 'pdf' | 'docx'): void => {
+export const exportToMarkdownFile = (document: Document): void => {
   const md = exportToMarkdown(document);
-  
-  switch (format) {
-    case 'md':
-      downloadFile(md, `${document.title}.md`, 'text/markdown');
-      break;
-    case 'pdf':
-      const printContent = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <title>${document.title}</title>
-          <style>
-            body { font-family: 'Inter', sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
-            h1 { color: #1E3A5F; border-bottom: 2px solid #FF6B35; padding-bottom: 10px; }
-            h2 { color: #1E3A5F; margin-top: 30px; }
-            h3 { color: #333; margin-top: 20px; }
-            code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; }
-            pre { background: #1E3A5F; color: #fff; padding: 15px; border-radius: 8px; overflow-x: auto; }
-            pre code { background: transparent; color: #fff; }
-            blockquote { border-left: 4px solid #FF6B35; padding-left: 15px; color: #666; margin: 20px 0; }
-            table { border-collapse: collapse; width: 100%; margin: 20px 0; }
-            th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
-            th { background: #F8FAFC; }
-            img { max-width: 100%; border-radius: 8px; margin: 10px 0; }
-          </style>
-        </head>
-        <body>${mdToHtml(md)}</body>
-        </html>
-      `;
-      const printWin = window.open('', '_blank');
-      if (printWin) {
-        printWin.document.write(printContent);
-        printWin.document.close();
-        printWin.onload = () => {
-          printWin.print();
-        };
-      }
-      break;
-    case 'docx':
-      downloadFile(md, `${document.title}.md`, 'text/markdown');
-      alert('Word 导出功能需要后端支持，当前已导出 Markdown 格式，可使用在线工具转换。');
-      break;
+  downloadFile(md, `${document.title}.md`, 'text/markdown');
+};
+
+export const exportToPdf = (document: Document): void => {
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="UTF-8">
+      <title>${document.title}</title>
+      <style>
+        body {
+          font-family: 'Microsoft YaHei', 'Inter', sans-serif;
+          padding: 40px;
+          max-width: 800px;
+          margin: 0 auto;
+          line-height: 1.8;
+          color: #333;
+        }
+        h1 {
+          color: #1E3A5F;
+          border-bottom: 2px solid #FF6B35;
+          padding-bottom: 10px;
+          font-size: 28px;
+        }
+        h2 {
+          color: #1E3A5F;
+          margin-top: 30px;
+          font-size: 22px;
+        }
+        h3 {
+          color: #333;
+          margin-top: 20px;
+          font-size: 18px;
+        }
+        p {
+          margin: 12px 0;
+        }
+        code {
+          background: #f4f4f4;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-family: 'JetBrains Mono', 'Consolas', monospace;
+          font-size: 14px;
+          color: #E74C3C;
+        }
+        pre {
+          background: #1E3A5F;
+          color: #fff;
+          padding: 15px;
+          border-radius: 8px;
+          overflow-x: auto;
+        }
+        pre code {
+          background: transparent;
+          color: #fff;
+        }
+        blockquote {
+          border-left: 4px solid #FF6B35;
+          padding-left: 15px;
+          color: #666;
+          margin: 20px 0;
+          font-style: italic;
+        }
+        table {
+          border-collapse: collapse;
+          width: 100%;
+          margin: 20px 0;
+        }
+        th, td {
+          border: 1px solid #ddd;
+          padding: 8px 12px;
+          text-align: left;
+        }
+        th {
+          background: #F8FAFC;
+          font-weight: 600;
+        }
+        img {
+          max-width: 100%;
+          border-radius: 8px;
+          margin: 10px 0;
+        }
+        ul, ol {
+          padding-left: 24px;
+          margin: 12px 0;
+        }
+        li {
+          margin: 6px 0;
+        }
+        @media print {
+          body {
+            padding: 20px;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      ${documentToHtml(document)}
+    </body>
+    </html>
+  `;
+
+  const printWin = window.open('', '_blank');
+  if (printWin) {
+    printWin.document.write(htmlContent);
+    printWin.document.close();
+    printWin.onload = () => {
+      setTimeout(() => {
+        printWin.print();
+      }, 500);
+    };
   }
 };
 
-const mdToHtml = (md: string): string => {
-  return md
-    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-    .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
-    .replace(/\*(.*)\*/gim, '<em>$1</em>')
-    .replace(/`{3}([\s\S]*?)`{3}/gim, '<pre><code>$1</code></pre>')
-    .replace(/`([^`]+)`/gim, '<code>$1</code>')
-    .replace(/^> (.*$)/gim, '<blockquote>$1</blockquote>')
-    .replace(/^- \[x\] (.*$)/gim, '<div><input type="checkbox" checked disabled> $1</div>')
-    .replace(/^- \[ \] (.*$)/gim, '<div><input type="checkbox" disabled> $1</div>')
-    .replace(/^- (.*$)/gim, '<li>$1</li>')
-    .replace(/^1\. (.*$)/gim, '<li>$1</li>')
-    .replace(/\|(.+)\|/gim, (match) => {
-      const cells = match.split('|').filter(c => c.trim());
-      return `<tr>${cells.map(c => `<td>${c.trim()}</td>`).join('')}</tr>`;
-    })
-    .replace(/!\[([^\]]+)\]\(([^)]+)\)/gim, '<img src="$2" alt="$1">')
-    .replace(/\n\n/gim, '<br><br>');
+export const exportToWord = (document: Document): void => {
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="UTF-8">
+      <title>${document.title}</title>
+      <!--[if gte mso 9]>
+      <xml>
+        <w:WordDocument>
+          <w:View>Print</w:View>
+          <w:Zoom>100</w:Zoom>
+          <w:DoNotOptimizeForBrowser/>
+        </w:WordDocument>
+      </xml>
+      <![endif]-->
+      <style>
+        body {
+          font-family: 'Microsoft YaHei', 'SimSun', sans-serif;
+          line-height: 1.8;
+          color: #333;
+          font-size: 12pt;
+        }
+        h1 {
+          color: #1E3A5F;
+          border-bottom: 2px solid #FF6B35;
+          padding-bottom: 10px;
+          font-size: 22pt;
+          font-weight: bold;
+          margin-bottom: 20px;
+        }
+        h2 {
+          color: #1E3A5F;
+          margin-top: 24px;
+          font-size: 16pt;
+          font-weight: bold;
+        }
+        h3 {
+          color: #333;
+          margin-top: 18px;
+          font-size: 14pt;
+          font-weight: bold;
+        }
+        p {
+          margin: 10px 0;
+          text-align: justify;
+        }
+        code {
+          background: #f4f4f4;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-family: 'Consolas', monospace;
+          color: #E74C3C;
+        }
+        pre {
+          background: #f5f5f5;
+          padding: 15px;
+          border-radius: 4px;
+          border: 1px solid #ddd;
+          font-family: 'Consolas', monospace;
+          white-space: pre-wrap;
+          word-wrap: break-word;
+        }
+        blockquote {
+          border-left: 4px solid #FF6B35;
+          padding-left: 15px;
+          color: #666;
+          margin: 20px 0;
+          font-style: italic;
+        }
+        table {
+          border-collapse: collapse;
+          width: 100%;
+          margin: 20px 0;
+        }
+        th, td {
+          border: 1px solid #ddd;
+          padding: 8px 12px;
+          text-align: left;
+        }
+        th {
+          background: #F8FAFC;
+          font-weight: bold;
+        }
+        img {
+          max-width: 100%;
+          height: auto;
+          margin: 10px 0;
+        }
+        ul, ol {
+          padding-left: 24px;
+          margin: 12px 0;
+        }
+        li {
+          margin: 6px 0;
+        }
+      </style>
+    </head>
+    <body>
+      ${documentToHtml(document)}
+    </body>
+    </html>
+  `;
+
+  const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
+  downloadFile(blob, `${document.title}.doc`, 'application/msword');
+};
+
+export const exportDocument = (document: Document, format: 'md' | 'pdf' | 'docx'): void => {
+  switch (format) {
+    case 'md':
+      exportToMarkdownFile(document);
+      break;
+    case 'pdf':
+      exportToPdf(document);
+      break;
+    case 'docx':
+      exportToWord(document);
+      break;
+  }
 };

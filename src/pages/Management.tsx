@@ -93,7 +93,7 @@ const permissionLevels = [
 ];
 
 export const Management: React.FC = () => {
-  const { spaces, folders, documents, activities, toggleFavorite, createSpace } = useDocumentStore();
+  const { spaces, folders, documents, activities, toggleFavorite, createSpace, updateFolderPermissions } = useDocumentStore();
   const { users, currentUser, getUserById } = useAuthStore();
   const { tasks } = useTaskStore();
   const { schedules } = useScheduleStore();
@@ -103,6 +103,7 @@ export const Management: React.FC = () => {
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null);
+  const [editingPermissions, setEditingPermissions] = useState<Record<string, 'viewer' | 'editor' | 'manager'>>({});
   const [newSpace, setNewSpace] = useState({ name: '', description: '', color: '#1E3A5F' });
 
   const totalDocuments = documents.length;
@@ -389,6 +390,7 @@ export const Management: React.FC = () => {
                     size="sm"
                     onClick={() => {
                       setSelectedFolder(folder);
+                      setEditingPermissions({ ...folder.permissions });
                       setShowPermissionModal(true);
                     }}
                   >
@@ -773,7 +775,13 @@ export const Management: React.FC = () => {
             <Button variant="ghost" onClick={() => setShowPermissionModal(false)}>
               关闭
             </Button>
-            <Button onClick={() => setShowPermissionModal(false)}>
+            <Button onClick={() => {
+              if (selectedFolder) {
+                updateFolderPermissions(selectedFolder.id, editingPermissions);
+                alert('权限保存成功！');
+                setShowPermissionModal(false);
+              }
+            }}>
               保存
             </Button>
           </>
@@ -796,9 +804,8 @@ export const Management: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              {selectedFolder && Object.entries(selectedFolder.permissions).map(([userId, role]) => {
+              {selectedFolder && Object.entries(editingPermissions).map(([userId, role]) => {
                 const user = getUserById(userId);
-                const roleValue = role as string;
                 return (
                   <div key={userId} className="flex items-center justify-between p-3 bg-white border border-primary-100 rounded-lg">
                     <div className="flex items-center gap-3">
@@ -810,7 +817,13 @@ export const Management: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <select
-                        value={roleValue}
+                        value={role}
+                        onChange={(e) => {
+                          setEditingPermissions(prev => ({
+                            ...prev,
+                            [userId]: e.target.value as 'viewer' | 'editor' | 'manager'
+                          }));
+                        }}
                         className="px-3 py-1.5 rounded-lg border border-primary-200 text-sm text-primary-700 focus:border-accent-400 outline-none bg-white"
                       >
                         {permissionLevels.map(level => (
@@ -819,7 +832,16 @@ export const Management: React.FC = () => {
                           </option>
                         ))}
                       </select>
-                      <button className="p-1.5 hover:bg-red-50 rounded-lg transition-colors">
+                      <button
+                        onClick={() => {
+                          setEditingPermissions(prev => {
+                            const newPerms = { ...prev };
+                            delete newPerms[userId];
+                            return newPerms;
+                          });
+                        }}
+                        className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                      >
                         <X className="w-4 h-4 text-red-400" />
                       </button>
                     </div>
@@ -827,7 +849,7 @@ export const Management: React.FC = () => {
                 );
               })}
 
-              {selectedFolder && Object.keys(selectedFolder.permissions).length === 0 && (
+              {selectedFolder && Object.keys(editingPermissions).length === 0 && (
                 <div className="text-center py-8 text-primary-400">
                   暂无成员权限设置
                 </div>

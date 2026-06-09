@@ -34,6 +34,7 @@ export interface Block {
   content: string;
   children?: Block[];
   checked?: boolean;
+  rows?: string[][];
 }
 
 export interface Document {

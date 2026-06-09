@@ -26,6 +26,7 @@ import {
   Clock,
   Check,
   Lock,
+  AlertCircle,
 } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDocumentStore } from '../store/useDocumentStore';
@@ -104,24 +105,61 @@ export const Documents: React.FC = () => {
   const [showExportMenu, setShowExportMenu] = useState(false);
 
   const currentSpaceId = spaceId || activeSpaceId || 'space1';
-  const requestedDocId = docId || activeDocumentId;
   const activeSpace = spaces.find(s => s.id === currentSpaceId);
   
   let activeDoc: typeof documents[0] | undefined;
-  if (requestedDocId) {
-    activeDoc = documents.find(d => d.id === requestedDocId);
+  let docExists = true;
+  let docBelongsToSpace = true;
+  
+  if (docId) {
+    const foundDoc = documents.find(d => d.id === docId);
+    if (!foundDoc) {
+      docExists = false;
+      activeDoc = undefined;
+    } else if (foundDoc.spaceId !== currentSpaceId) {
+      docBelongsToSpace = false;
+      activeDoc = undefined;
+    } else {
+      activeDoc = foundDoc;
+    }
+  } else if (activeDocumentId) {
+    const foundDoc = documents.find(d => d.id === activeDocumentId);
+    if (foundDoc && foundDoc.spaceId === currentSpaceId) {
+      activeDoc = foundDoc;
+    } else {
+      const defaultDoc = documents.find(d => d.spaceId === currentSpaceId && !d.folderId);
+      if (defaultDoc) {
+        const defaultFolder = defaultDoc.folderId ? folders.find(f => f.id === defaultDoc.folderId) : null;
+        const canViewDefault = currentUser ? canView(currentUser.id, defaultFolder) : true;
+        if (canViewDefault) {
+          activeDoc = defaultDoc;
+        } else {
+          activeDoc = documents.find(d => {
+            if (d.spaceId !== currentSpaceId) return false;
+            const folder = d.folderId ? folders.find(f => f.id === d.folderId) : null;
+            return currentUser ? canView(currentUser.id, folder) : true;
+          });
+        }
+      }
+    }
   } else {
-    const defaultDoc = documents.find(d => d.spaceId === currentSpaceId && !d.folderId) || documents[0];
-    const defaultFolder = defaultDoc?.folderId ? folders.find(f => f.id === defaultDoc.folderId) : null;
-    const canViewDefault = currentUser ? canView(currentUser.id, defaultFolder) : true;
-    activeDoc = canViewDefault ? defaultDoc : documents.find(d => {
-      const folder = d.folderId ? folders.find(f => f.id === d.folderId) : null;
-      return currentUser ? canView(currentUser.id, folder) : true;
-    });
+    const defaultDoc = documents.find(d => d.spaceId === currentSpaceId && !d.folderId);
+    if (defaultDoc) {
+      const defaultFolder = defaultDoc.folderId ? folders.find(f => f.id === defaultDoc.folderId) : null;
+      const canViewDefault = currentUser ? canView(currentUser.id, defaultFolder) : true;
+      if (canViewDefault) {
+        activeDoc = defaultDoc;
+      } else {
+        activeDoc = documents.find(d => {
+          if (d.spaceId !== currentSpaceId) return false;
+          const folder = d.folderId ? folders.find(f => f.id === d.folderId) : null;
+          return currentUser ? canView(currentUser.id, folder) : true;
+        });
+      }
+    }
   }
   
   const activeFolder = activeDoc?.folderId ? folders.find(f => f.id === activeDoc.folderId) : null;
-  const docExists = !requestedDocId || !!activeDoc;
   const currentDocId = activeDoc?.id || '';
   const docVersions = currentDocId ? getVersionsByDocument(currentDocId) : [];
   const docComments = currentDocId ? getCommentsByTarget('document', currentDocId) : [];
@@ -135,10 +173,13 @@ export const Documents: React.FC = () => {
     if (spaceId && spaceId !== activeSpaceId) {
       setActiveSpace(spaceId);
     }
-    if (docId && docId !== activeDocumentId && documents.find(d => d.id === docId)) {
-      setActiveDocument(docId);
+    if (docId) {
+      const foundDoc = documents.find(d => d.id === docId);
+      if (foundDoc && foundDoc.spaceId === (spaceId || currentSpaceId) && docId !== activeDocumentId) {
+        setActiveDocument(docId);
+      }
     }
-  }, [spaceId, docId, activeSpaceId, activeDocumentId, documents, setActiveSpace, setActiveDocument]);
+  }, [spaceId, docId, activeSpaceId, activeDocumentId, documents, setActiveSpace, setActiveDocument, currentSpaceId]);
 
   const toggleFolder = (folderId: string) => {
     setExpandedFolders(prev => {
@@ -480,10 +521,10 @@ export const Documents: React.FC = () => {
     const childFolders = getFoldersByParent(spaceId, parentId).filter(folder => 
       currentUser ? canView(currentUser.id, folder) : true
     );
-    const docsInFolder = getDocumentsByFolder(spaceId, parentId).filter(doc => {
+    const docsInFolder = parentId !== null ? getDocumentsByFolder(spaceId, parentId).filter(doc => {
       const docFolder = doc.folderId ? folders.find(f => f.id === doc.folderId) : null;
       return currentUser ? canView(currentUser.id, docFolder) : true;
-    });
+    }) : [];
 
     return (
       <>
@@ -582,6 +623,7 @@ export const Documents: React.FC = () => {
                 }`}
                 onClick={() => {
                   setActiveSpace(space.id);
+                  setActiveDocument(null);
                   navigate(`/documents/${space.id}`);
                 }}
               >
@@ -639,11 +681,14 @@ export const Documents: React.FC = () => {
                 className="w-full"
                 leftIcon={<Plus className="w-4 h-4" />}
                 onClick={() => {
-                  const title = prompt('请输入文档标题：');
-                  if (title) {
-                    createDocument({ title, spaceId: currentSpaceId });
+                const title = prompt('请输入文档标题：');
+                if (title) {
+                  const newDocId = createDocument({ title, spaceId: currentSpaceId });
+                  if (newDocId) {
+                    navigate(`/documents/${currentSpaceId}/${newDocId}`);
                   }
-                }}
+                }
+              }}
               >
                 新建文档
               </Button>
@@ -667,7 +712,7 @@ export const Documents: React.FC = () => {
       </div>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        {docExists && canViewDoc && (
+        {docExists && docBelongsToSpace && canViewDoc && (
           <div className="h-14 bg-white border-b border-primary-100 px-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div
@@ -802,6 +847,18 @@ export const Documents: React.FC = () => {
               <FileText className="w-16 h-16 text-primary-200 mb-4" />
               <p className="text-primary-500 text-lg mb-2">文档不存在或已被删除</p>
               <p className="text-primary-400 text-sm mb-6">您访问的文档链接无效，请返回文档列表</p>
+              <Button
+                variant="primary"
+                onClick={() => navigate('/documents')}
+              >
+                返回文档列表
+              </Button>
+            </div>
+          ) : !docBelongsToSpace ? (
+            <div className="flex-1 flex flex-col items-center justify-center h-full p-12 text-center">
+              <AlertCircle className="w-16 h-16 text-primary-200 mb-4" />
+              <p className="text-primary-500 text-lg mb-2">文档不属于当前空间</p>
+              <p className="text-primary-400 text-sm mb-6">该文档不在此空间中，请检查链接是否正确</p>
               <Button
                 variant="primary"
                 onClick={() => navigate('/documents')}
